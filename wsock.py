@@ -8,7 +8,7 @@ import ssl
 import struct
 from urllib.parse import urlparse
 
-GUID = b'258EAFA5-E914-47DA-95CA-C5AB0DC11B65'
+GUID = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 MAX_MESSAGE = 1 << 20
 
 
@@ -133,7 +133,8 @@ async def connect(url, timeout=60):
                   f'Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nUser-Agent: gow3-coop\r\n\r\n').encode())
     await writer.drain()
     status, headers = await asyncio.wait_for(read_http_head(reader), timeout)
-    if ' 101 ' not in status + ' ':
+    expected = base64.b64encode(hashlib.sha1(key.encode() + GUID).digest()).decode()
+    if ' 101 ' not in status + ' ' or headers.get('sec-websocket-accept') != expected:
         writer.close()
         raise ConnectionError(f'handshake refused: {status}')
     return WebSocket(reader, writer, mask=True)
