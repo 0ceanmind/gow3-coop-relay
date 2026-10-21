@@ -77,9 +77,9 @@ class Agent:
                 continue
             f = STATE.unpack(raw)
             # magic, version, kind, in_game, costume, frame, buttons, lx..r2 (6), pos(3), fwd(3), hp, zones(6)
-            in_game, costume, flags = f[3], f[4], 1 if self.names[slot].startswith('[bot]') else 0
+            in_game, variation, flags = f[3], f[4], 1 if self.names[slot].startswith('[bot]') else 0
             pad, rest = f[6:13], f[13:]
-            entries[self.local_index(slot) - 1] = REMOTE.pack(1, in_game, costume, flags, *pad, *rest,
+            entries[self.local_index(slot) - 1] = REMOTE.pack(1, in_game, variation, flags, *pad, *rest,
                                                               self.names[slot].encode()[:15])
         self.udp.sendto(HEADER.pack(b'G3CO', 1, KIND_REMOTES, MAX_PLAYERS - 1, self.slot) + b''.join(entries), self.game_addr)
         self.stats['to_game'] += 1
@@ -138,7 +138,7 @@ class Agent:
                 self.slot, self.code = data['slot'], data['code']
                 role = 'hosting' if self.slot == 0 else 'joined'
                 shown = self.code if not self.args.direct_code else self.args.direct_code
-                self.set_status(state=role, code=shown,
+                self.set_status(state=role, code=shown, mode=data.get('mode', 'arena'),
                                 message=f'Hosting. Join code: {shown}' if self.slot == 0 else f'Joined game {shown} as player {self.slot + 1}')
                 self.notice(f'Co-op: {"hosting, code " + shown if self.slot == 0 else "joined as player " + str(self.slot + 1)}')
             elif t == 'roster':
@@ -197,7 +197,7 @@ class Agent:
                 a.direct_code = f'{local_ip()}:{a.direct}'
             else:
                 url = a.relay
-            hello = {'t': 'host', 'name': name}
+            hello = {'t': 'host', 'name': name, 'mode': a.where}
         else:
             target = a.target.strip()
             if ':' in target:
@@ -244,6 +244,7 @@ def main():
     p.add_argument('--direct', type=int, default=0, help='host: serve the session directly on this TCP port')
     p.add_argument('--name', default='')
     p.add_argument('--status', default='')
+    p.add_argument('--where', default='arena', help='host: arena (practice arena) or load (saved game)')
     p.add_argument('mode', choices=['host', 'join'])
     p.add_argument('target', nargs='?', default='')
     a = p.parse_args()

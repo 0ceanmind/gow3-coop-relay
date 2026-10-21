@@ -53,7 +53,7 @@ async def run(a):
         if 5.0 < phase < 5.4:
             buttons |= TRIANGLE
         frame += 1
-        pkt = STATE.pack(b'G3CO', 1, 1, 1, slot % 9, frame, buttons, lx, ly, 128, 128, 0, 0,
+        pkt = STATE.pack(b'G3CO', 1, 1, 1, slot % 6, frame, buttons, lx, ly, 128, 128, 0, 0,
                          0, 0, 0, 0, 0, 1, 100.0, *zones)
         await ws.send(pkt)
         await asyncio.sleep(1 / 30)

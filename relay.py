@@ -22,8 +22,8 @@ rooms = {}
 
 
 class Room:
-    def __init__(self, code):
-        self.code, self.players, self.created = code, {}, time.time()
+    def __init__(self, code, mode='arena'):
+        self.code, self.players, self.created, self.mode = code, {}, time.time(), mode
 
     def roster(self):
         return json.dumps({'t': 'roster', 'players': [{'slot': s, 'name': p['name']} for s, p in sorted(self.players.items())]})
@@ -51,7 +51,7 @@ async def session(ws):
         name = str(hello.get('name', 'Spartan'))[:24]
         if hello.get('t') == 'host':
             code = new_code()
-            room = rooms[code] = Room(code)
+            room = rooms[code] = Room(code, str(hello.get('mode', 'arena'))[:16])
             slot = 0
         elif hello.get('t') == 'join':
             code = str(hello.get('code', '')).strip().upper()
@@ -67,7 +67,7 @@ async def session(ws):
         else:
             return
         room.players[slot] = {'ws': ws, 'name': name}
-        await ws.send(json.dumps({'t': 'welcome', 'code': room.code, 'slot': slot}))
+        await ws.send(json.dumps({'t': 'welcome', 'code': room.code, 'slot': slot, 'mode': room.mode}))
         await room.broadcast(room.roster())
         print(f'room {room.code}: {name} is player {slot + 1} ({len(room.players)} in room)', flush=True)
         while True:
