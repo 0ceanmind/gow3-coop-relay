@@ -40,15 +40,21 @@ class Agent:
         self.ws = None
         self.status = {'state': 'starting', 'code': None, 'players': [], 'message': ''}
         self.loop = None
+        self.stats = {'from_game': 0, 'to_game': 0, 'from_net': 0, 'to_net': 0}
 
     # ---- status for the launcher ----
     def set_status(self, **kw):
         self.status.update(kw)
         if self.args.status:
+            # The launcher reads this file at any time: a replace that meets an open reader on
+            # Windows is skipped (the next update writes it again).
             tmp = self.args.status + '.tmp'
-            with open(tmp, 'w') as f:
-                json.dump(self.status, f)
-            os.replace(tmp, self.args.status)
+            try:
+                with open(tmp, 'w') as f:
+                    json.dump(self.status, f)
+                os.replace(tmp, self.args.status)
+            except OSError:
+                pass
         if kw.get('message'):
             print('Co-op:', kw['message'], flush=True)
 
@@ -64,8 +70,8 @@ class Agent:
         if not self.game_addr or self.slot is None:
             return
         now = time.time()
-        entries = [REMOTE.pack(0, 0, 0, 0, 0, 128, 128, 128, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, b'')
-                   for _ in range(MAX_PLAYERS - 1)]
+        empty = REMOTE.pack(0, 0, 0, 0, 0, 128, 128, 128, 128, 0, 0, *[0.0] * 7, *[0] * 6, b'')
+        entries = [empty] * (MAX_PLAYERS - 1)
         for slot, (t, raw) in self.states.items():
             if slot == self.slot or slot not in self.names or now - t > 3:
                 continue
@@ -76,13 +82,16 @@ class Agent:
             entries[self.local_index(slot) - 1] = REMOTE.pack(1, in_game, costume, flags, *pad, *rest,
                                                               self.names[slot].encode()[:15])
         self.udp.sendto(HEADER.pack(b'G3CO', 1, KIND_REMOTES, MAX_PLAYERS - 1, self.slot) + b''.join(entries), self.game_addr)
+        self.stats['to_game'] += 1
 
     def on_game_packet(self, data, addr):
         if len(data) != STATE.size or data[:4] != b'G3CO':
             return
         self.game_addr = addr
+        self.stats['from_game'] += 1
         if self.ws and self.slot is not None:
             asyncio.ensure_future(self.ws.send(data))
+            self.stats['to_net'] += 1
         self.states[self.slot] = (time.time(), data)
 
     # ---- session ----
@@ -119,6 +128,7 @@ class Agent:
                 self.notice('Co-op: disconnected')
                 return
             if isinstance(msg, bytes):
+                self.stats['from_net'] += 1
                 if len(msg) == 1 + STATE.size:
                     self.states[msg[0]] = (time.time(), msg[1:])
                 continue
@@ -152,8 +162,16 @@ class Agent:
                     pass
 
     async def pump(self):
+        last = 0
         while True:
-            self.send_remotes()
+            try:
+                self.send_remotes()
+                if time.time() - last > 2:
+                    last = time.time()
+                    self.set_status(stats=dict(self.stats))
+            except Exception:
+                import traceback
+                traceback.print_exc()
             await asyncio.sleep(1 / 60)
 
     async def run(self):
@@ -163,7 +181,10 @@ class Agent:
         class Game(asyncio.DatagramProtocol):
             def datagram_received(self, data, addr):
                 agent.on_game_packet(data, addr)
-        transport, _ = await self.loop.create_datagram_endpoint(Game, local_addr=('127.0.0.1', self.args.game_port))
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        no_udp_reset(sock)
+        sock.bind(('127.0.0.1', self.args.game_port))
+        transport, _ = await self.loop.create_datagram_endpoint(Game, sock=sock)
         self.udp = transport
         a = self.args
         name = a.name or os.environ.get('USERNAME', 'Spartan')
@@ -189,6 +210,20 @@ class Agent:
         asyncio.ensure_future(self.pump())
         await self.session(url, hello)
         await asyncio.sleep(1)
+
+
+def no_udp_reset(sock):
+    """Windows reports a datagram sent to a closed port (the game restarted) as a reset of this
+    socket, after which asyncio stops receiving: SIO_UDP_CONNRESET off."""
+    if sys.platform != 'win32':
+        return
+    import ctypes
+    from ctypes import wintypes
+    SIO_UDP_CONNRESET = 0x9800000C
+    off = wintypes.BOOL(False)
+    returned = wintypes.DWORD()
+    ctypes.windll.ws2_32.WSAIoctl(ctypes.c_size_t(sock.fileno()), SIO_UDP_CONNRESET, ctypes.byref(off),
+                                  ctypes.sizeof(off), None, 0, ctypes.byref(returned), None, None)
 
 
 def local_ip():
