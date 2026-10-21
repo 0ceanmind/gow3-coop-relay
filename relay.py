@@ -54,7 +54,9 @@ async def session(ws):
             room = rooms[code] = Room(code)
             slot = 0
         elif hello.get('t') == 'join':
-            room = rooms.get(str(hello.get('code', '')).strip().upper())
+            code = str(hello.get('code', '')).strip().upper()
+            # '*': the only game on this server (an agent hosting directly).
+            room = next(iter(rooms.values())) if code == '*' and len(rooms) == 1 else rooms.get(code)
             if not room:
                 await ws.send(json.dumps({'t': 'error', 'msg': 'No game with that code.'})); return
             free = [s for s in range(MAX_PLAYERS) if s not in room.players]
