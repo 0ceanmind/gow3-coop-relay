@@ -100,8 +100,13 @@ async def handle(reader, writer):
         request, headers = await asyncio.wait_for(read_http_head(reader), 30)
     except Exception:
         writer.close(); return
-    if headers.get('upgrade', '').lower() == 'websocket':
-        await session(await accept(reader, writer, request, headers))
+    if os.environ.get('RELAY_DEBUG'):
+        print('request', request, {k: v for k, v in headers.items() if k.startswith(('upgrade', 'connection', 'sec-'))}, flush=True)
+    if 'websocket' in headers.get('upgrade', '').lower():
+        try:
+            await session(await accept(reader, writer, request, headers))
+        except Exception as e:
+            print('session error', repr(e), flush=True)
         return
     body = json.dumps({'service': 'gow3-coop-relay', 'rooms': len(rooms),
                        'players': sum(len(r.players) for r in rooms.values())}).encode()
