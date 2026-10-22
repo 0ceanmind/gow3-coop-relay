@@ -35,7 +35,10 @@ async def run(a):
     async def listen():
         nonlocal zones
         while True:
-            m = await ws.recv()
+            try:
+                m = await ws.recv()
+            except wsock.Closed:
+                return
             if isinstance(m, bytes) and len(m) == 1 + STATE.size and m[0] == 0:
                 zones = list(STATE.unpack(m[1:])[-6:])
     task = asyncio.ensure_future(listen())
@@ -43,9 +46,9 @@ async def run(a):
     while time.time() - start < a.seconds:
         t = time.time() - start
         ang = t * 0.9 + slot * 2.1
-        lx, ly = int(128 + 127 * math.cos(ang)), int(128 + 127 * math.sin(ang))
+        lx, ly = (128, 128) if a.idle else (int(128 + 127 * math.cos(ang)), int(128 + 127 * math.sin(ang)))
         buttons = 0
-        phase = t % 6
+        phase = t % 6 if not (a.calm or a.idle) else -1
         if 2.0 < phase < 2.15 or 2.5 < phase < 2.65:
             buttons |= SQUARE
         if 4.0 < phase < 4.2:
@@ -55,7 +58,11 @@ async def run(a):
         frame += 1
         pkt = STATE.pack(b'G3CO', 1, 1, 1, slot % 6, frame, buttons, lx, ly, 128, 128, 0, 0,
                          0, 0, 0, 0, 0, 1, 100.0, *zones)
-        await ws.send(pkt)
+        try:
+            await ws.send(pkt)
+        except wsock.Closed:
+            print(f'bot {a.name}: the session ended', flush=True)
+            break
         await asyncio.sleep(1 / 30)
     task.cancel()
     await ws.close()
@@ -68,4 +75,6 @@ if __name__ == '__main__':
     p.add_argument('--relay', default=DEFAULT_RELAY)
     p.add_argument('--name', default='Bot')
     p.add_argument('--seconds', type=float, default=60)
+    p.add_argument('--idle', action='store_true', help='stand still')
+    p.add_argument('--calm', action='store_true', help='walk only, no attacks or jumps')
     sys.exit(asyncio.run(run(p.parse_args())))

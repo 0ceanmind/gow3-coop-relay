@@ -84,10 +84,10 @@ async def session(ws):
         if room and slot is not None and room.players.get(slot, {}).get('ws') is ws:
             del room.players[slot]
             if slot == 0:
+                rooms.pop(room.code, None)  # first: nobody joins a game without its host
                 await room.broadcast(json.dumps({'t': 'closed'}))
                 for p in list(room.players.values()):
                     await p['ws'].close()
-                rooms.pop(room.code, None)
                 print(f'room {room.code}: host left, closed', flush=True)
             else:
                 await room.broadcast(room.roster())

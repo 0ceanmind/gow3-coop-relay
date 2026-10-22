@@ -39,8 +39,13 @@ class WebSocket:
         async with self.lock:
             if self.closed:
                 raise Closed()
-            self.w.write(bytes(head) + data)
-            await self.w.drain()
+            try:
+                self.w.write(bytes(head) + data)
+                await self.w.drain()
+            except (ConnectionError, OSError, RuntimeError):
+                # The peer went away: this socket is closed (callers handle Closed only).
+                self.closed = True
+                raise Closed() from None
 
     async def send(self, message):
         if isinstance(message, str):

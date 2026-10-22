@@ -89,10 +89,16 @@ class Agent:
             return
         self.game_addr = addr
         self.stats['from_game'] += 1
-        if self.ws and self.slot is not None:
-            asyncio.ensure_future(self.ws.send(data))
+        if self.ws and self.slot is not None and not self.ws.closed:
+            asyncio.ensure_future(self.forward(data))
             self.stats['to_net'] += 1
         self.states[self.slot] = (time.time(), data)
+
+    async def forward(self, data):
+        try:
+            await self.ws.send(data)
+        except wsock.Closed:
+            pass  # the session loop reports the disconnect
 
     # ---- session ----
     def on_roster(self, players):
